@@ -1,0 +1,19 @@
+# Run npm run setup:local to generate random LOCAL keys in ignored .dev.vars.
+# Production secrets: wrangler secret put NAME (see docs/cloudflare-setup.md).
+# App 1: identity only, Auth.js Facebook provider.
+AUTH_FACEBOOK_SECRET=bd6583284649413eaf2c401c33d198f7
+# App 2: Page access and Messenger webhooks.
+META_APP_SECRET=76486e9001adf74a5ac28d489f740ef6
+META_WEBHOOK_VERIFY_TOKEN=DUJzzt2BvEuUK+Es5bLl2I6xR11AkkheAuRaZwrr+8w=
+TOKEN_ENCRYPTION_KEY=
+SESSION_SIGNING_SECRET=
+# Optional JSON map of older base64 AES-256 keys, by version, for key rotation.
+TOKEN_ENCRYPTION_PREVIOUS_KEYS={}
+# Production public config is in wrangler.jsonc:
+# APP_ORIGIN, AUTH_FACEBOOK_ID, AUTH_FACEBOOK_GRAPH_API_VERSION
+# META_APP_ID, META_GRAPH_API_VERSION, META_LOGIN_CONFIG_ID (optional)
+# AI_ENABLED, MESSAGING_ENABLED (both false until explicitly enabled)
+# AI_GATEWAY_ID, CHAT_MODEL, VISION_MODEL, EMBEDDING_MODEL, RERANK_MODEL
+
+# Local mock mode only: exact comma-separated preview origins, generated for Codespaces.
+# MOCK_APP_ORIGINS=https://your-codespace-5173.app.github.dev

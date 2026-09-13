@@ -1,0 +1,107 @@
+{
+  "name": "inboxplease-local",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/auth/*",
+      "/webhooks/*",
+      "/media/*",
+      "/authjs/*",
+      "/facebook/*",
+    ],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inboxplease",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle/migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "inboxplease-images",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MESSAGE_QUEUE",
+        "queue": "inboxplease-messages",
+      },
+      {
+        "binding": "CATALOG_QUEUE",
+        "queue": "inboxplease-catalog",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "inboxplease-messages",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 5,
+      },
+      {
+        "queue": "inboxplease-catalog",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+      },
+    ],
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONVERSATIONS",
+        "class_name": "ConversationDO",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ConversationDO"],
+    },
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "vars": {
+    "APP_MODE": "mock",
+    "APP_ORIGIN": "http://localhost:5173",
+    "META_GRAPH_API_VERSION": "mock",
+    "META_APP_ID": "",
+    "META_LOGIN_CONFIG_ID": "",
+    "AI_GATEWAY_ID": "",
+    "CHAT_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    "VISION_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "RERANK_MODEL": "@cf/baai/bge-reranker-base",
+    "EMBEDDING_DIMENSIONS": "1024",
+    "DEBOUNCE_MS": "2500",
+    "DEBOUNCE_MAX_MS": "8000",
+    "TOKEN_KEY_VERSION": "1",
+    "IMAGE_MAX_BYTES": "5242880",
+    "IMAGE_PROBABLE_THRESHOLD": "",
+    "IMAGE_SIMILAR_THRESHOLD": "",
+    "IMAGE_NEAR_DUPLICATE_DISTANCE": "",
+    "MESSENGER_WINDOW_HOURS": "24",
+    "AUTH_FACEBOOK_ID": "",
+    "AUTH_FACEBOOK_GRAPH_API_VERSION": "",
+    "AI_ENABLED": "true",
+    "MESSAGING_ENABLED": "true",
+  },
+}

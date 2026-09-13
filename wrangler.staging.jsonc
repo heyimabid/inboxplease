@@ -1,0 +1,120 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inboxplease-staging",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/auth/*",
+      "/webhooks/*",
+      "/media/*",
+      "/authjs/*",
+      "/facebook/*",
+    ],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inboxplease-staging",
+      "database_id": "8316d2c4-47cd-4be0-8556-3c56525625d3",
+      "migrations_dir": "drizzle/migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "inboxplease-staging-images",
+    },
+  ],
+  "vectorize": [
+    {
+      "binding": "CATALOG_INDEX",
+      "index_name": "inboxplease-staging-catalog",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MESSAGE_QUEUE",
+        "queue": "inboxplease-staging-messages",
+      },
+      {
+        "binding": "CATALOG_QUEUE",
+        "queue": "inboxplease-staging-catalog",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "inboxplease-staging-messages",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 5,
+        "dead_letter_queue": "inboxplease-staging-messages-dlq",
+      },
+      {
+        "queue": "inboxplease-staging-catalog",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "inboxplease-staging-catalog-dlq",
+      },
+    ],
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONVERSATIONS",
+        "class_name": "ConversationDO",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ConversationDO"],
+    },
+  ],
+  "ai": {
+    "binding": "AI",
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "vars": {
+    "APP_MODE": "production",
+    "APP_ORIGIN": "https://inboxplease-staging.helloimabid.workers.dev",
+    "META_GRAPH_API_VERSION": "",
+    "META_APP_ID": "",
+    "META_LOGIN_CONFIG_ID": "",
+    "AI_GATEWAY_ID": "inboxplease-staging",
+    "CHAT_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    "VISION_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "RERANK_MODEL": "@cf/baai/bge-reranker-base",
+    "EMBEDDING_DIMENSIONS": "1024",
+    "DEBOUNCE_MS": "2500",
+    "DEBOUNCE_MAX_MS": "8000",
+    "TOKEN_KEY_VERSION": "1",
+    "IMAGE_MAX_BYTES": "5242880",
+    "IMAGE_PROBABLE_THRESHOLD": "",
+    "IMAGE_SIMILAR_THRESHOLD": "",
+    "IMAGE_NEAR_DUPLICATE_DISTANCE": "",
+    "MESSENGER_WINDOW_HOURS": "24",
+    "AUTH_FACEBOOK_ID": "",
+    "AUTH_FACEBOOK_GRAPH_API_VERSION": "",
+    "AI_ENABLED": "false",
+    "MESSAGING_ENABLED": "false",
+  },
+  "account_id": "742cce6203b13f0b3376ebaae547be83",
+}

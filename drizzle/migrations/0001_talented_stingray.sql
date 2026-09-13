@@ -1,0 +1,1 @@
+ALTER TABLE `order_drafts` ADD `selection_json` text;

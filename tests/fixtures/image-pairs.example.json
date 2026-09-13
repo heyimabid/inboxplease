@@ -1,0 +1,18 @@
+[
+  {
+    "workspaceId": "evaluation-store",
+    "customerImage": "customer/hoodie-crop.jpg",
+    "catalogImage": "catalog/hoodie.jpg",
+    "sameProduct": true,
+    "score": 0.87,
+    "perceptualDistance": 9
+  },
+  {
+    "workspaceId": "evaluation-store",
+    "customerImage": "customer/different-shirt.jpg",
+    "catalogImage": "catalog/hoodie.jpg",
+    "sameProduct": false,
+    "score": 0.59,
+    "perceptualDistance": 31
+  }
+]
