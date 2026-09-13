@@ -1,3 +1,7 @@
+import { shoppingQuestion } from './conversation-routing';
+import { checkoutReply } from './checkout-reply';
+import { conversationContext } from '../repositories/conversations';
+import { currentOrderFields } from './order-fields';
 import { and, eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { database } from '../db/client';
@@ -7,6 +11,7 @@ import type { GeneratedReply } from './orchestrator';
 import { style, type Language } from './language-style';
 import {
   getDraft,
+  consentedProfileName,
   startDraft,
   updateDraft,
   addItem,
@@ -25,6 +30,7 @@ export async function orderFlow(
   intent: CustomerIntent,
   language: Language,
 ): Promise<GeneratedReply | null> {
+  if (shoppingQuestion(ctx.sourceText, intent.intent)) return null;
   let draft = await getDraft(ctx);
   const orderIntent = [
     'order_start',
@@ -40,7 +46,8 @@ export async function orderFlow(
     metadata: { tool: 'order_draft' },
   });
   try {
-    if (explicitConfirmation(ctx.sourceText)) {
+    const profileName = await consentedProfileName(ctx);
+    if (explicitConfirmation(ctx.sourceText) && !profileName) {
       const order = await confirmDraft(ctx);
       return reply(
         style(language, {
@@ -51,7 +58,9 @@ export async function orderFlow(
       );
     }
     const changing =
-      /change|পরিবর্তন|বদল/i.test(ctx.sourceText) || intent.intent === 'order_cancellation';
+      (/change|পরিবর্তন|বদল/i.test(ctx.sourceText) &&
+        !/phone|number|name|address|নাম|নম্বর|ঠিকানা/i.test(ctx.sourceText)) ||
+      intent.intent === 'order_cancellation';
     if (changing && draft && !['CONFIRMED', 'CANCELLED'].includes(draft.state)) {
       if (/cancel|বাতিল/i.test(ctx.sourceText)) {
         await cancelDraft(ctx);
@@ -97,7 +106,24 @@ export async function orderFlow(
       draft = await startDraft(ctx);
     if (draft.state === 'CONFIRMED')
       return reply('This order is already confirmed. Please ask the seller to help with changes.');
-    const fields = intent.extractedOrderFields;
+    const fields = currentOrderFields(
+      ctx.sourceText,
+      intent.extractedOrderFields,
+      nextOrderState(draft),
+    );
+    const customer = (await conversationContext(ctx.env, ctx.workspaceId, ctx.conversationId))
+      .customer;
+    if (profileName) fields.customerName = profileName;
+    const zones = await database(ctx.env)
+      .select()
+      .from(deliveryZones)
+      .where(
+        and(
+          eq(deliveryZones.workspaceId, ctx.workspaceId),
+          eq(deliveryZones.isActive, true),
+          eq(deliveryZones.currency, draft.currency),
+        ),
+      );
     const selection = z
       .object({
         productId: z.string().optional(),
@@ -114,16 +140,14 @@ export async function orderFlow(
     if (fields.customerName) patch.customerName = fields.customerName;
     if (fields.phone) patch.phone = fields.phone;
     if (fields.address) patch.deliveryAddress = fields.address;
-    if (fields.deliveryArea) patch.deliveryArea = fields.deliveryArea;
-    if (!Object.keys(patch).length && ctx.sourceText.trim().length >= 2) {
-      if (draft.state === 'COLLECTING_CUSTOMER_NAME' && !orderIntent)
-        patch.customerName = ctx.sourceText.trim();
-      if (draft.state === 'COLLECTING_ADDRESS' && !orderIntent)
-        patch.deliveryAddress = ctx.sourceText.trim();
-      if (draft.state === 'COLLECTING_DELIVERY_AREA') patch.deliveryArea = ctx.sourceText.trim();
-    }
+    // An inferred city is not a configured delivery zone. Keep a valid address even
+    // when the model proposes a zone the store does not support.
+    const zone = zones.find((z) => ctx.sourceText.toLowerCase().includes(z.name.toLowerCase()));
+    if (zone) patch.deliveryArea = zone.name;
     if (Object.keys(patch).length) draft = await updateDraft(ctx, patch);
-    if (!draft.items.length || /change|পরিবর্তন|বদল/i.test(ctx.sourceText)) {
+    if (draft.items.length === 1 && fields.quantity !== null && !changing)
+      draft = await addItem(ctx, draft.items[0]!.variantId, fields.quantity);
+    if (!draft.items.length || changing) {
       let candidates = await searchProducts(
         ctx.env,
         ctx.workspaceId,
@@ -225,42 +249,13 @@ export async function orderFlow(
     }
     const state = nextOrderState(draft);
     if (state === 'REVIEWING') return reviewDraft(ctx, language);
-    const questions = {
-      COLLECTING_CUSTOMER_NAME: style(language, {
-        english: 'What name should we put on the order?',
-        bangla: 'অর্ডারটি কার নামে হবে?',
-        banglish: 'Order-ta kar name hobe?',
-      }),
-      COLLECTING_PHONE: style(language, {
-        english: 'What is your Bangladeshi mobile number for delivery?',
-        bangla: 'ডেলিভারির জন্য আপনার মোবাইল নম্বরটি দিন।',
-        banglish: 'Delivery-r jonno apnar mobile number-ta din.',
-      }),
-      COLLECTING_ADDRESS: style(language, {
-        english: 'Please share your full delivery address.',
-        bangla: 'আপনার সম্পূর্ণ ডেলিভারির ঠিকানা দিন।',
-        banglish: 'Apnar full delivery address-ta din.',
-      }),
-    };
-    if (state === 'COLLECTING_DELIVERY_AREA') {
-      const zones = await database(ctx.env)
-        .select()
-        .from(deliveryZones)
-        .where(
-          and(eq(deliveryZones.workspaceId, ctx.workspaceId), eq(deliveryZones.isActive, true)),
-        );
-      return reply(
-        style(language, {
-          english: `Choose a delivery area: ${zones.map((z) => z.name).join(' / ')}`,
-          bangla: `ডেলিভারির এলাকা বেছে নিন: ${zones.map((z) => z.name).join(' / ')}`,
-          banglish: `Delivery area select korun: ${zones.map((z) => z.name).join(' / ')}`,
-        }),
-      );
-    }
-    return reply(
-      state in questions
-        ? questions[state as keyof typeof questions]
-        : 'Please choose a product and variant.',
+    return checkoutReply(
+      ctx,
+      draft,
+      language,
+      customer.facebookName,
+      zones.map((z) => z.name),
+      Object.keys(patch),
     );
   } catch (e) {
     if (e instanceof AppError) {

@@ -25,6 +25,10 @@ export type OutgoingMessage =
   | { text: string }
   | { attachment: { type: 'image'; payload: { url: string; is_reusable: false } } };
 export interface MetaClient {
+  customerProfile(
+    psid: string,
+    token: string,
+  ): Promise<{ name: string | null; picture: string | null }>;
   exchangeCode(code: string): Promise<string>;
   identity(token: string): Promise<{ id: string; name: string; email?: string }>;
   permissions(token: string): Promise<string[]>;

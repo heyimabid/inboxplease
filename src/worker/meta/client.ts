@@ -70,6 +70,23 @@ export function metaClient(env: Env): MetaClient {
     return raw;
   }
   return {
+    async customerProfile(psid, token) {
+      const profile = z
+        .object({
+          first_name: z.string().optional(),
+          last_name: z.string().optional(),
+          profile_pic: z.string().optional(),
+        })
+        .parse(
+          await call(encodeURIComponent(psid), token, 'GET', undefined, {
+            fields: 'first_name,last_name,profile_pic',
+          }),
+        );
+      return {
+        name: [profile.first_name, profile.last_name].filter(Boolean).join(' ') || null,
+        picture: profile.profile_pic ?? null,
+      };
+    },
     async exchangeCode(code) {
       const result = await call('oauth/access_token', '', 'GET', undefined, {
         client_id: env.META_APP_ID,

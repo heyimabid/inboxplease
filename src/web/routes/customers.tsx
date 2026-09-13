@@ -1,3 +1,4 @@
+import { CustomerAvatar } from '../components/customer-avatar';
 import { useState } from 'react';
 import type { customers } from '../../worker/db/schema';
 import { useResource, mutate } from '../lib/api';
@@ -48,7 +49,12 @@ export function CustomersPage() {
                 {data.map((c) => (
                   <tr key={c.id}>
                     <td>
-                      <strong>{c.name ?? 'Messenger customer'}</strong>
+                      <CustomerAvatar
+                        name={c.facebookName ?? c.name}
+                        picture={c.profilePictureUrl}
+                      />
+                      <strong>{c.facebookName ?? c.name ?? 'Messenger customer'}</strong>
+                      <small className="muted">Messenger ID: {c.platformCustomerId}</small>
                     </td>
                     <td>{c.phone ?? 'Not collected'}</td>
                     <td>{c.defaultAddress ?? 'Not collected'}</td>

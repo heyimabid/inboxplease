@@ -18,9 +18,9 @@ export function groundedProductReply(
       banglish: 'Ei store-e reliable match paini. Product-er name, SKU ba ekta photo diben?',
     });
   const heading = style(language, {
-    english: 'Here are the current catalog details:',
-    bangla: 'ক্যাটালগ অনুযায়ী পণ্যের তথ্য:',
-    banglish: 'Catalog onujayi product-er details:',
+    english: 'Here’s what we have:',
+    bangla: 'আমাদের কাছে এগুলো আছে:',
+    banglish: 'Amader kache egulo ache:',
   });
   const blocks = products.map(
     (p) =>
@@ -58,9 +58,9 @@ export function groundedProductReply(
           banglish: 'Order-er age seller confirmation lagbe.',
         })
       : style(language, {
-          english: 'Which product and variant would you like?',
-          bangla: 'কোন পণ্য ও ভ্যারিয়েন্টটি নিতে চান?',
-          banglish: 'Kon product ar variant-ta nite chan?',
+          english: 'Which one would you like to know more about?',
+          bangla: 'কোনটা সম্পর্কে আরও জানতে চান?',
+          banglish: 'Konta niye aro jante chan?',
         }),
   ].join('\n\n');
 }

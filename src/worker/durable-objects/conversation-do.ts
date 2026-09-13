@@ -1,3 +1,4 @@
+import { refreshCustomerProfile } from '../services/customer-profile';
 import { isVisualReference } from '../ai/visual-context';
 import { replyChunks } from '../services/reply-chunks';
 import { captureCustomerImage } from '../ai/image-understanding';
@@ -9,7 +10,7 @@ import { z } from 'zod';
 import type { Env } from '../env';
 import { database } from '../db/client';
 import { webhookEvents } from '../db/schema';
-import { ingestEvent } from '../repositories/conversations';
+import { ingestEvent, conversationContext } from '../repositories/conversations';
 import { orchestrate, type GeneratedReply } from '../ai/orchestrator';
 import { deliver } from '../services/delivery';
 import { sha256 } from '../services/encryption';
@@ -42,6 +43,11 @@ export class ConversationDO extends DurableObject<Env> {
   async receive(jobId: string) {
     const event = await ingestEvent(this.env, jobId);
     if (!event) return;
+    this.ctx.waitUntil(
+      conversationContext(this.env, event.workspaceId, event.conversationId)
+        .then((context) => refreshCustomerProfile(this.env, context))
+        .catch(() => undefined),
+    );
     await this.ctx.storage.delete('deleted');
     // Register the photo before doing network I/O, so text cannot race its download.
     const attachments = (event.attachments ?? []).flatMap((attachment, i) =>

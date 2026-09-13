@@ -4,6 +4,9 @@ import { AppError } from '../shared/errors';
 export function mockMetaClient(env: Env): MetaClient {
   if (env.APP_MODE !== 'mock') throw new AppError('FORBIDDEN', 'Mock mode is disabled', 403);
   return {
+    async customerProfile() {
+      return { name: null, picture: null };
+    },
     async exchangeCode() {
       return 'local-user-token';
     },

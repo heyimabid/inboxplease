@@ -1,3 +1,6 @@
+import { catalogBrowse } from './conversation-routing';
+import { getDraft } from '../services/orders';
+import { canonicalCandidates } from '../repositories/products';
 import { isVisualReference } from './visual-context';
 import { isPhotoRequest, productPhotoReply } from './product-photos';
 import { isReplyRepair, relevantFaqs } from './faq-relevance';
@@ -8,7 +11,7 @@ import { and, eq, desc, isNull, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Env } from '../env';
 import { database } from '../db/client';
-import { settings, messages, customers, deliveryZones, faqs } from '../db/schema';
+import { settings, messages, customers, deliveryZones, faqs, products } from '../db/schema';
 import { conversationContext } from '../repositories/conversations';
 import { understand } from './intent-classifier';
 import { searchProducts } from './product-retrieval';
@@ -56,18 +59,60 @@ export async function orchestrate(
   let language: Language = detectLanguage(text);
   try {
     const dictionary = z.record(z.string(), z.string()).parse(JSON.parse(config.normalizationJson));
+    const activeDraft = await getDraft({
+      env,
+      workspaceId,
+      conversationId,
+      sourceText: text,
+      sourceMessageIds,
+    });
     const intent = await understand(
       env,
       text.trim() || (imageIds.length ? 'is this available?' : ''),
-      JSON.stringify(history.reverse()).slice(-10000),
+      JSON.stringify({
+        customer: {
+          facebookName: context.customer.facebookName,
+          preferredLanguage: context.customer.languagePreference,
+        },
+        draft: activeDraft
+          ? {
+              state: activeDraft.state,
+              recipientName: activeDraft.customerName,
+              phoneCollected: Boolean(activeDraft.phone),
+              addressCollected: Boolean(activeDraft.deliveryAddress),
+              deliveryArea: activeDraft.deliveryArea,
+            }
+          : null,
+        history: [...history].reverse(),
+      }).slice(-12000),
       dictionary,
       config.handoffRules,
     );
     language = intent.language === 'unknown' ? language : intent.language;
+    if (
+      activeDraft &&
+      !['CONFIRMED', 'CANCELLED'].includes(activeDraft.state) &&
+      !catalogBrowse(text) &&
+      detectLanguage(text) === 'english' &&
+      (intent.intent === 'order_information' ||
+        /^\+?[\d\s()-]+$/.test(text) ||
+        text.trim().split(/\s+/).length <= 2)
+    ) {
+      const prior = history
+        .filter((m) => m.sender === 'customer' && m.text !== text)
+        .map((m) => detectLanguage(m.text ?? ''))
+        .find((l) => ['banglish', 'bangla', 'mixed'].includes(l));
+      language = prior ?? (context.customer.languagePreference as Language | null) ?? language;
+    }
     if (['english', 'bangla', 'banglish', 'mixed'].includes(config.responseStyle))
       language = z.enum(['english', 'bangla', 'banglish', 'mixed']).parse(config.responseStyle);
     const detected = intent.language === 'unknown' ? detectLanguage(text) : intent.language;
-    if (sourceMessageIds.length && text.length > 20 && detected !== 'unknown') {
+    if (
+      sourceMessageIds.length &&
+      text.length > 20 &&
+      detected !== 'unknown' &&
+      intent.intent !== 'order_information'
+    ) {
       await db
         .update(messages)
         .set({ language: detected })
@@ -199,9 +244,9 @@ export async function orchestrate(
     if (intent.intent === 'greeting')
       return {
         text: style(language, {
-          english: 'Hi! I’m this store’s automated assistant. What product can I help you with?',
-          bangla: 'হ্যালো! আমি এই দোকানের স্বয়ংক্রিয় সহকারী। কোন পণ্যটি খুঁজছেন?',
-          banglish: 'Hi! Ami ei store-er automated assistant. Kon product-ta khujchen?',
+          english: `Hi${context.customer.facebookName ? ', ' + context.customer.facebookName : ''}! What are you looking for today?`,
+          bangla: `হ্যালো${context.customer.facebookName ? ' ' + context.customer.facebookName : ''}! আজ কী খুঁজছেন?`,
+          banglish: `Hi${context.customer.facebookName ? ', ' + context.customer.facebookName : ''}! Aj ki khujchen?`,
         }),
         productIds: [],
         language,
@@ -248,10 +293,30 @@ export async function orchestrate(
         metadata: { tool: 'get_delivery_options' },
       };
     }
-    const found = await searchProducts(env, workspaceId, intent.normalizedQuery ?? text, {
-      size: intent.extractedOrderFields.size ?? undefined,
-      color: intent.extractedOrderFields.color ?? undefined,
-    });
+    const browseIds = catalogBrowse(text)
+      ? await db
+          .select({ id: products.id })
+          .from(products)
+          .where(
+            and(
+              eq(products.workspaceId, workspaceId),
+              eq(products.status, 'active'),
+              eq(products.isAiSearchable, true),
+              isNull(products.deletedAt),
+            ),
+          )
+          .limit(4)
+      : null;
+    const found = browseIds
+      ? await canonicalCandidates(
+          env,
+          workspaceId,
+          browseIds.map((p) => p.id),
+        )
+      : await searchProducts(env, workspaceId, intent.normalizedQuery ?? text, {
+          size: intent.extractedOrderFields.size ?? undefined,
+          color: intent.extractedOrderFields.color ?? undefined,
+        });
     const storePolicies = await db
       .select()
       .from(faqs)

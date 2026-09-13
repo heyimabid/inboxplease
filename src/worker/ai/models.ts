@@ -1,3 +1,4 @@
+import { geminiJson } from './gemini';
 import { z } from 'zod';
 import type { Env } from '../env';
 import { log } from '../shared/logger';
@@ -43,6 +44,11 @@ export function inference(env: Env): Inference {
       for (let attempt = 0; attempt < 2; attempt++) {
         const started = Date.now();
         try {
+          if (model.startsWith('google/gemini-')) {
+            const result = await geminiJson(env, model, schema, system, user, imageUrls);
+            log('ai_inference', { model, latencyMs: Date.now() - started, retryCount: attempt });
+            return result;
+          }
           const result = await env.AI.run(
             model,
             {

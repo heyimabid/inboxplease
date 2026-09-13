@@ -1,3 +1,4 @@
+import { catalogBrowse, useMyName } from './conversation-routing';
 import { isVisualReference } from './visual-context';
 import { isPhotoRequest } from './product-photos';
 import { isGreeting, isReplyRepair } from './faq-relevance';
@@ -59,6 +60,9 @@ export async function understand(
   dictionary: Record<string, string> = {},
   handoffRules = '',
 ) {
+  if (catalogBrowse(text) && mockIntent(text).intent !== 'human_request')
+    return { ...mockIntent(text), intent: 'product_search' as const };
+  if (useMyName(text)) return { ...mockIntent(text), intent: 'order_information' as const };
   if (isVisualReference(text)) return { ...mockIntent(text), intent: 'product_question' as const };
   if (isPhotoRequest(text) && mockIntent(text).intent !== 'human_request')
     return { ...mockIntent(text), intent: 'product_question' as const };

@@ -68,3 +68,27 @@ Pairwise visual comparison now distinguishes product identity from the same narr
 Regression coverage includes text-first and photo-first arrival, a caption arriving during attachment download, preserving an existing name-collection draft, duplicate event delivery, alternative reply wording and unrelated-image rejection. Visual model outputs are mocked in automated tests; real-photo accuracy still depends on the vision model.
 
 Deployed on 2026-09-13 as Worker version `4bcde392-0e8f-4218-88c3-610f90265782`. Formatting, lint, TypeScript, all 102 tests across 19 files, and the production build passed. Both the frontend and production API health endpoint returned HTTP 200 after deployment.
+
+## Checkout fields, Messenger profiles and Gemini
+
+Checkout now extracts phone numbers and quantities from the current message, drops model fields copied from history, and accepts plain names/addresses according to the missing field. Vague self-references are not customer names. Existing drafts with a vague name ask for a real name again. Natural Banglish quantities such as `ekta nibo` are supported, quantity changes update the existing item, and contact-detail corrections do not remove the product. Confirmation still requires the deterministic order review and explicit customer approval.
+
+Migration `0004_glossy_gideon.sql` adds separate Facebook name, profile-photo URL and refresh timestamp fields. Profiles use the connected Page token and customer PSID, with a daily refresh claim and graceful handling of unavailable Meta profile access. Inbound messages trigger a background refresh; opening a conversation refreshes existing customers. The dashboard uses Facebook identity when available, while the checkout recipient name remains separate. The displayed Messenger ID is Page-scoped, not a public Facebook account ID. Avatar loading is limited to Meta image hosts with a fallback for expired or unavailable photos.
+
+Both chat and vision use `google/gemini-3.5-flash`. Requests go through the Google AI Studio provider-native route in `inboxplease-staging` with the stored `default` key alias. A generic AI run probe attempted Unified Billing and failed for insufficient gateway balance; the provider-native binding succeeded with the saved key. A live request using the actual structured-output adapter classified `accha ami eta ekta nibo` as Banglish `order_start` with quantity 1. Gemini JSON and inline image parts have dedicated parsing; incomplete output is rejected. Embeddings and reranking retain their existing models.
+
+Validation: all 107 tests across 22 files, formatting, lint, TypeScript and build passed. Coverage includes the full checkout replay with injected stale model fields, profile permission failures and refresh caching, and Gemini structured image requests and truncated-output rejection. The additive profile migration was applied to the production D1 database and recorded in `d1_migrations`.
+
+Deployed as Worker version `89049808-4a5e-4856-abd9-ac04a5c15288`. Production API health, inbox HTML and the new client asset returned HTTP 200; the live frontend CSP check identified a separate static-asset header that also needed the Meta avatar hosts.
+
+Final deployment including the static avatar CSP fix: `c3c7ebb9-02aa-470d-ae2a-f98b8c8a5411`. Live inbox and API health returned HTTP 200, and the served frontend CSP now permits both configured Meta image domains.
+
+## Flash Lite and conversational checkout
+
+Chat and vision now use `google/gemini-3.5-flash-lite` through the existing Google AI Studio stored-key route. A live probe using the checkout renderer produced a Banglish acknowledgement of the saved address followed by the configured delivery-area choices.
+
+Product, availability, price and delivery questions can interrupt checkout without becoming name/address fields. Broad catalog requests such as `ki ki ponno ache` browse active, searchable products in the current workspace. The understanding context includes the customer's Facebook name and current draft; short checkout answers can retain the conversation's Banglish/Bangla style. Greetings use the available profile name.
+
+When the customer says `amr name e`, the server resolves the name from that customer's stored Facebook profile. A yes answer can accept a profile name only after the latest sent message offered that exact name. This consent is separate from final order confirmation and cannot authorize an arbitrary model-supplied name. A live aggregate check confirmed the current customer record already has a Facebook name and profile photo.
+
+Delivery areas are checked against configured choices before patching the draft, so a guessed city/area cannot discard a valid address. A question mark requests an explanation without replacing saved fields. Checkout replies acknowledge newly supplied details, offer the known profile name, allow several missing details together, and list real delivery-area choices. Gemini writes the conversational wording from this constrained context; provider failures and unsupported numerical/fulfillment claims fall back to the deterministic prompt. Prices, order review and final confirmation remain controlled by the existing order services.

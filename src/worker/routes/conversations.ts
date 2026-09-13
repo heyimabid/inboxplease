@@ -1,3 +1,4 @@
+import { refreshCustomerProfile } from '../services/customer-profile';
 import { deleteCustomer } from '../services/maintenance';
 import { requireAdmin } from '../services/sessions';
 import { Hono } from 'hono';
@@ -38,7 +39,9 @@ conversationRoutes.get('/', async (c) => {
       orderState: conversations.orderState,
       lastMessageAt: conversations.lastMessageAt,
       unreadCount: conversations.unreadCount,
-      customerName: customers.name,
+      customerName: sql<string | null>`coalesce(${customers.facebookName}, ${customers.name})`,
+      customerPicture: customers.profilePictureUrl,
+      platformCustomerId: customers.platformCustomerId,
       pageName: pages.pageName,
       preview: sql<
         string | null
@@ -66,7 +69,9 @@ conversationRoutes.get('/:id', async (c) => {
   const w = c.get('workspaceId'),
     id = c.req.param('id'),
     db = database(c.env);
-  const context = await conversationContext(c.env, w, id);
+  let context = await conversationContext(c.env, w, id);
+  await refreshCustomerProfile(c.env, context);
+  context = await conversationContext(c.env, w, id);
   const p = pagination.parse({ ...c.req.query(), limit: c.req.query('limit') ?? '100' });
   const [history, human, draft] = await Promise.all([
     db

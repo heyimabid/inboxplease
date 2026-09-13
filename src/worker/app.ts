@@ -46,7 +46,7 @@ app.use(
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'blob:', 'data:'],
+      imgSrc: ["'self'", 'blob:', 'data:', 'https://*.fbcdn.net', 'https://*.fbsbx.com'],
       connectSrc: ["'self'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],

@@ -16,6 +16,8 @@ export type Session = {
 };
 export type Conversation = typeof db.conversations.$inferSelect & {
   customerName: string | null;
+  customerPicture: string | null;
+  platformCustomerId: string;
   pageName: string;
   preview: string | null;
 };

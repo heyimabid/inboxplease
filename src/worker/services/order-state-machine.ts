@@ -31,6 +31,16 @@ export function explicitConfirmation(text: string) {
     text.trim(),
   );
 }
+export function validCustomerName(value: string) {
+  return (
+    value.trim().length >= 2 &&
+    !/^(yes|no|ok|okay|sure|hello|hi|হ্যাঁ|হ্যা|জি|না)[.!\s]*$/iu.test(value.trim()) &&
+    !/^(?:(?:am[ai]r|amar|amr|my|আমার)\s*(?:name|nam|নাম)(?:\s*(?:e|ei|এ|hobe|হবে|ই))*|me|myself|আমি)$/iu.test(
+      value.trim(),
+    ) &&
+    !/[?？]|\d{5}/u.test(value)
+  );
+}
 export function nextOrderState(draft: {
   items: unknown[];
   customerName: string | null;
@@ -39,7 +49,8 @@ export function nextOrderState(draft: {
   deliveryArea: string | null;
 }): OrderState {
   if (!draft.items.length) return 'SELECTING_PRODUCT';
-  if (!draft.customerName) return 'COLLECTING_CUSTOMER_NAME';
+  if (!draft.customerName || !validCustomerName(draft.customerName))
+    return 'COLLECTING_CUSTOMER_NAME';
   if (!draft.phone) return 'COLLECTING_PHONE';
   if (!draft.deliveryAddress) return 'COLLECTING_ADDRESS';
   if (!draft.deliveryArea) return 'COLLECTING_DELIVERY_AREA';

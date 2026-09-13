@@ -1,3 +1,4 @@
+import { useMyName } from '../ai/conversation-routing';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import type { Env } from '../env';
 import { database } from '../db/client';
@@ -24,6 +25,7 @@ import {
   nextOrderState,
   explicitConfirmation,
   latinDigits,
+  validCustomerName,
 } from './order-state-machine';
 import { style, formatMoney, type Language } from '../ai/language-style';
 import { log } from '../shared/logger';
@@ -110,6 +112,38 @@ function editable(state: string) {
   if (['CONFIRMED', 'CANCELLED'].includes(state))
     throw new AppError('ORDER_TERMINAL', 'Start a new order before making changes', 409);
 }
+export async function consentedProfileName(ctx: OrderContext) {
+  if (
+    !useMyName(ctx.sourceText) &&
+    !/^(yes|yeah|sure|হ্যাঁ|হ্যা|জি)[.!\s]*$/iu.test(ctx.sourceText.trim())
+  )
+    return null;
+  const context = await conversationContext(ctx.env, ctx.workspaceId, ctx.conversationId);
+  const name = context.customer.facebookName;
+  if (!name) return null;
+  if (useMyName(ctx.sourceText)) return name;
+  const draft = await getDraft(ctx);
+  if (!draft || nextOrderState(draft) !== 'COLLECTING_CUSTOMER_NAME') return null;
+  const last = await database(ctx.env)
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.workspaceId, ctx.workspaceId),
+        eq(messages.conversationId, ctx.conversationId),
+        eq(messages.direction, 'outbound'),
+        eq(messages.deliveryStatus, 'sent'),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  try {
+    return JSON.parse(last?.aiMetadataJson ?? '{}').offeredProfileName === name ? name : null;
+  } catch {
+    return null;
+  }
+}
 export async function updateDraft(ctx: OrderContext, input: unknown) {
   const fields = draftFieldsSchema.parse(input);
   const draft = required(await getDraft(ctx));
@@ -125,7 +159,11 @@ export async function updateDraft(ctx: OrderContext, input: unknown) {
       patch.phone = phone;
       continue;
     }
-    if (!source.includes(latinDigits(value).toLowerCase()))
+    const profileConsent =
+      key === 'customerName' &&
+      !source.includes(latinDigits(value).toLowerCase()) &&
+      value === (await consentedProfileName(ctx));
+    if (!profileConsent && !source.includes(latinDigits(value).toLowerCase()))
       throw new AppError('UNVERIFIED_FIELD', 'Please type the order detail explicitly');
     if (key === 'customerName') patch.customerName = value;
     if (key === 'deliveryAddress') patch.deliveryAddress = value;
@@ -137,6 +175,7 @@ export async function updateDraft(ctx: OrderContext, input: unknown) {
       draft[key] &&
       patch[key] &&
       draft[key] !== patch[key] &&
+      !(key === 'customerName' && !validCustomerName(draft.customerName!)) &&
       !/change|correct|instead|পরিবর্তন|সংশোধন|বদল/i.test(ctx.sourceText)
     )
       delete patch[key];

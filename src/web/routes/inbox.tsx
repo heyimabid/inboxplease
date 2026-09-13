@@ -1,3 +1,4 @@
+import { CustomerAvatar } from '../components/customer-avatar';
 import { API_ORIGIN } from '../lib/api';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -141,9 +142,7 @@ export function InboxPage() {
                     .catch((e) => toast(String(e)));
                 }}
               >
-                <span className={`avatar ${c.mode === 'human' ? 'warm' : ''}`}>
-                  {(c.customerName ?? 'C')[0]}
-                </span>
+                <CustomerAvatar name={c.customerName} picture={c.customerPicture} />
                 <div>
                   <div className="conversation-row-title">
                     <strong>{c.customerName ?? 'Messenger customer'}</strong>
@@ -213,9 +212,13 @@ function ConversationView({ id, refreshList }: { id: string; refreshList: () => 
     <>
       <section className="conversation-main">
         <header className="conversation-header">
-          <span className="avatar">{(data.customer.name ?? 'C')[0]}</span>
+          <CustomerAvatar
+            name={data.customer.facebookName ?? data.customer.name}
+            picture={data.customer.profilePictureUrl}
+          />
           <div>
-            <h2>{data.customer.name ?? 'Messenger customer'}</h2>
+            <h2>{data.customer.facebookName ?? data.customer.name ?? 'Messenger customer'}</h2>
+            <small>Messenger Page-scoped ID: {data.customer.platformCustomerId}</small>
             <small>
               <span className="status-dot" /> {data.page.name} · Messenger
             </small>
