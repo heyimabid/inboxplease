@@ -42,7 +42,7 @@ export async function searchProducts(
     hits = variantHits;
   }
   if (!hits.length) {
-    const terms = normalizeCommerce(q)
+    const terms = (env.APP_MODE === 'mock' ? normalizeCommerce(q) : q)
       .split(/[^\p{L}\p{N}]+/u)
       .filter(
         (w) =>
@@ -81,7 +81,7 @@ export async function searchProducts(
         .limit(8);
   }
   if (!hits.length && q) {
-    const vector = await inference(env).embed(normalizeCommerce(q));
+    const vector = await inference(env).embed(env.APP_MODE === 'mock' ? normalizeCommerce(q) : q);
     if (env.APP_MODE === 'mock') {
       const rows = await db
         .select()

@@ -18,12 +18,17 @@ it.each(['1234', '01212345678', '017123456789', '+911712345678'])(
 it('requires an explicit complete confirmation', () => {
   expect(explicitConfirmation('Confirm')).toBe(true);
   expect(explicitConfirmation('হ্যাঁ')).toBe(true);
+  expect(explicitConfirmation('confirm koro')).toBe(true);
+  expect(explicitConfirmation('please confirm')).toBe(true);
   for (const text of [
     'confirm but change color',
     'do not confirm',
     'yes maybe',
     'না, color change করবো',
     'okay',
+    'confirm na',
+    'Amr order ki confirm hoise?',
+    'Na bolsi order ta confirm ki na',
   ])
     expect(explicitConfirmation(text)).toBe(false);
   expect(() => assertTransition('REVIEWING', 'CONFIRMED', true)).toThrow();

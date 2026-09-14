@@ -1,4 +1,4 @@
-import { clarification } from './conversation-routing';
+import { clarification, useMyName } from './conversation-routing';
 import type { CustomerIntent } from './schemas';
 import { latinDigits, normalizePhone, validCustomerName } from '../services/order-state-machine';
 
@@ -47,20 +47,23 @@ export function currentOrderFields(
     fields.customerName = source;
   if (onlyNumber || (phone && source.replace(/[^\d]/g, '') === phone.replace(/[^\d]/g, '')))
     fields.address = null;
-  if (
-    fields.customerName &&
-    (!validCustomerName(fields.customerName) || !validCustomerName(source))
-  )
+  if (fields.customerName && (!validCustomerName(fields.customerName) || useMyName(source)))
     fields.customerName = null;
   if (
-    state === 'COLLECTING_ADDRESS' &&
+    (state === 'COLLECTING_ADDRESS' ||
+      /\d.{0,35}\b(?:road|rd|ave|avenue|street|lane|block|house|dhaka)\b|(?:বাসা|রোড|সড়ক|সড়ক)/iu.test(
+        source,
+      )) &&
     !fields.address &&
     !onlyNumber &&
     !phone &&
     source.length >= 8 &&
     !/[?？]/u.test(source)
   )
-    fields.address = source;
+    fields.address = source
+      .replace(/^(?:(?:amr|amar|my)\s+)?(?:address|ঠিকানা)\s*[:=]?\s*/iu, '')
+      .replace(/\s+(?:e hobe|hobe|হবে)[.!]*$/iu, '')
+      .trim();
   if (state === 'COLLECTING_DELIVERY_AREA' && !fields.deliveryArea && !onlyNumber && !phone)
     fields.deliveryArea = source;
   const explicitQuantity = source.match(

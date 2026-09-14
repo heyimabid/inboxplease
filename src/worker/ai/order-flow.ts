@@ -1,4 +1,6 @@
-import { shoppingQuestion } from './conversation-routing';
+import { statedDeliveryZone } from '../services/delivery-zone';
+import { orderStatusReply } from './order-status';
+import { shoppingQuestion, clarification, asksForReview } from './conversation-routing';
 import { checkoutReply } from './checkout-reply';
 import { conversationContext } from '../repositories/conversations';
 import { currentOrderFields } from './order-fields';
@@ -30,15 +32,43 @@ export async function orderFlow(
   intent: CustomerIntent,
   language: Language,
 ): Promise<GeneratedReply | null> {
-  if (shoppingQuestion(ctx.sourceText, intent.intent)) return null;
   let draft = await getDraft(ctx);
+  if (intent.intent === 'order_status') return orderStatusReply(ctx, language);
+  // Mock classification has no conversation context. Only permit plausible bare
+  // field answers in that adapter; production classification sees the draft.
+  const bareMockAnswer =
+    ctx.env.APP_MODE === 'mock' &&
+    draft &&
+    intent.intent === 'product_search' &&
+    (/^[+\d\s()-]+$/.test(ctx.sourceText) ||
+      /\d.{0,35}\b(?:road|ave|dhaka|street|lane)\b/iu.test(ctx.sourceText) ||
+      (nextOrderState(draft) === 'COLLECTING_CUSTOMER_NAME' &&
+        /^[\p{L}.'-]+(?: [\p{L}.'-]+){0,2}$/u.test(ctx.sourceText)) ||
+      /^(?:quantity|qty)\s*[:=]?\s*\d+$/iu.test(ctx.sourceText) ||
+      nextOrderState(draft) === 'COLLECTING_DELIVERY_AREA');
+  if (
+    shoppingQuestion(ctx.sourceText, intent.intent) &&
+    !bareMockAnswer &&
+    !clarification(ctx.sourceText) &&
+    !asksForReview(ctx.sourceText) &&
+    !explicitConfirmation(ctx.sourceText)
+  )
+    return null;
   const orderIntent = [
     'order_start',
     'order_information',
     'order_confirmation',
     'order_cancellation',
   ].includes(intent.intent);
-  if (!orderIntent && (!draft || ['CONFIRMED', 'CANCELLED'].includes(draft.state))) return null;
+  if (
+    !orderIntent &&
+    !bareMockAnswer &&
+    !explicitConfirmation(ctx.sourceText) &&
+    !(draft && (clarification(ctx.sourceText) || asksForReview(ctx.sourceText)))
+  )
+    return null;
+  if (!draft && !['order_start', 'order_information'].includes(intent.intent)) return null;
+  if (draft?.state === 'CANCELLED' && intent.intent !== 'order_start') return null;
   const reply = (text: string): GeneratedReply => ({
     text,
     language,
@@ -49,13 +79,15 @@ export async function orderFlow(
     const profileName = await consentedProfileName(ctx);
     if (explicitConfirmation(ctx.sourceText) && !profileName) {
       const order = await confirmDraft(ctx);
-      return reply(
+      const confirmedReply = reply(
         style(language, {
           english: `Order ${order.orderNumber} is confirmed. Thank you!`,
           bangla: `আপনার অর্ডার ${order.orderNumber} নিশ্চিত হয়েছে। ধন্যবাদ!`,
           banglish: `Apnar order ${order.orderNumber} confirm hoyeche. Thank you!`,
         }),
       );
+      confirmedReply.metadata = { tool: 'order_confirmed', status: order.status };
+      return confirmedReply;
     }
     const changing =
       (/change|পরিবর্তন|বদল/i.test(ctx.sourceText) &&
@@ -72,6 +104,21 @@ export async function orderFlow(
           }),
         );
       }
+      const replacingItem = Boolean(
+        intent.extractedOrderFields.color ||
+        intent.extractedOrderFields.size ||
+        intent.productReferences.length ||
+        /\b(?:color|size|variant)\b|রং|সাইজ|ভ্যারিয়েন্ট/iu.test(ctx.sourceText),
+      );
+      if (!replacingItem)
+        return reply(
+          style(language, {
+            english:
+              'What would you like to change? Your current items and delivery details are still saved.',
+            bangla: 'কোন তথ্যটা বদলাতে চান? আপনার পণ্য আর ডেলিভারির তথ্য রাখা আছে।',
+            banglish: 'Konta change korte chan? Apnar items ar delivery details save ache.',
+          }),
+        );
       if (draft.items.length > 1)
         return reply('Please ask the seller to help edit an order with multiple items.');
       const prior = draft.items[0];
@@ -104,8 +151,15 @@ export async function orderFlow(
       (draft.state === 'CONFIRMED' && intent.intent === 'order_start')
     )
       draft = await startDraft(ctx);
-    if (draft.state === 'CONFIRMED')
-      return reply('This order is already confirmed. Please ask the seller to help with changes.');
+    if (draft.state === 'CONFIRMED') {
+      const status = await orderStatusReply(ctx, language);
+      status.text += style(language, {
+        english: ' If you need to change its details, the seller can help with that.',
+        bangla: ' তথ্য বদলাতে চাইলে বিক্রেতার সাহায্য লাগবে।',
+        banglish: ' Details change korte chaile seller-er help lagbe.',
+      });
+      return status;
+    }
     const fields = currentOrderFields(
       ctx.sourceText,
       intent.extractedOrderFields,
@@ -142,8 +196,20 @@ export async function orderFlow(
     if (fields.address) patch.deliveryAddress = fields.address;
     // An inferred city is not a configured delivery zone. Keep a valid address even
     // when the model proposes a zone the store does not support.
-    const zone = zones.find((z) => ctx.sourceText.toLowerCase().includes(z.name.toLowerCase()));
-    if (zone) patch.deliveryArea = zone.name;
+    const statedZone = statedDeliveryZone(
+      ctx.sourceText,
+      zones.map((z) => z.name),
+    );
+    const zone = zones.find((z) => z.name === statedZone);
+    if (zone) {
+      patch.deliveryArea = zone.name;
+      if (
+        patch.deliveryAddress &&
+        !/\d/.test(patch.deliveryAddress) &&
+        /dhaka|ঢাকা/iu.test(patch.deliveryAddress)
+      )
+        delete patch.deliveryAddress;
+    }
     if (Object.keys(patch).length) draft = await updateDraft(ctx, patch);
     if (draft.items.length === 1 && fields.quantity !== null && !changing)
       draft = await addItem(ctx, draft.items[0]!.variantId, fields.quantity);
@@ -248,7 +314,21 @@ export async function orderFlow(
       draft = await addItem(ctx, possible[0]!.id, quantity);
     }
     const state = nextOrderState(draft);
-    if (state === 'REVIEWING') return reviewDraft(ctx, language);
+    if (state === 'REVIEWING') {
+      // Only a changed draft or an explicit review request warrants another full summary.
+      if (draft.state !== 'AWAITING_CONFIRMATION' || asksForReview(ctx.sourceText))
+        return reviewDraft(ctx, language);
+      return reply(
+        style(language, {
+          english:
+            'Your details are saved and the order is waiting for confirmation. Would you like me to place it as shown, or is there something you want to change?',
+          bangla:
+            'আপনার তথ্য রাখা আছে, অর্ডার নিশ্চিত করা বাকি। দেখানো বিবরণ অনুযায়ী অর্ডার করব, নাকি কিছু বদলাতে চান?',
+          banglish:
+            'Apnar details save ache, order confirm kora baki. Deyaa details-e order korbo, naki kichu change korte chan?',
+        }),
+      );
+    }
     return checkoutReply(
       ctx,
       draft,

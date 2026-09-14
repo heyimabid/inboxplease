@@ -1,5 +1,4 @@
 import { refreshCustomerProfile } from '../services/customer-profile';
-import { isVisualReference } from '../ai/visual-context';
 import { replyChunks } from '../services/reply-chunks';
 import { captureCustomerImage } from '../ai/image-understanding';
 import { getProduct } from '../repositories/products';
@@ -78,11 +77,7 @@ export class ConversationDO extends DurableObject<Env> {
         firstPending: first,
         identity: { workspaceId: event.workspaceId, conversationId: event.conversationId },
       });
-      const visualTurn = pending.some((e) => e.attachments?.length || isVisualReference(e.text));
-      const delay =
-        event.type === 'postback'
-          ? 0
-          : Number(visualTurn ? this.env.DEBOUNCE_MAX_MS : this.env.DEBOUNCE_MS);
+      const delay = event.type === 'postback' ? 0 : Number(this.env.DEBOUNCE_MAX_MS);
       await tx.setAlarm(Math.min(Date.now() + delay, first + Number(this.env.DEBOUNCE_MAX_MS)));
     });
   }
@@ -221,9 +216,8 @@ export class ConversationDO extends DurableObject<Env> {
     // Recheck after slow image/model calls, but never change IDs after sending starts.
     if (batch.deliveryStarted) return false;
     const result = await this.ctx.storage.transaction(async (tx) => {
-      const visual = (e: Pending) =>
-        !e.postback &&
-        Boolean(e.attachments?.length || e.imageIds?.length || isVisualReference(e.text));
+      // Batch by arrival time, never by guessed language or visual-reference phrases.
+      const visual = (e: Pending) => !e.postback;
       const pending = (await tx.get<Pending[]>('pending')) ?? [];
       const first = Math.min(...batch.events.map((e) => e.receivedAt ?? e.timestamp));
       const related = batch.events.every(visual)

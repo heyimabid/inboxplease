@@ -1,0 +1,1 @@
+{"name":"inboxplease-native-agent-probe","main":"probe.ts","compatibility_date":"2026-09-11","compatibility_flags":["nodejs_compat"],"account_id":"742cce6203b13f0b3376ebaae547be83","ai":{"binding":"AI","remote":true},"vars":{"APP_MODE":"production","AI_GATEWAY_ID":"inboxplease-staging","CHAT_MODEL":"google/gemini-3.5-flash-lite","VISION_MODEL":"google/gemini-3.5-flash-lite"}}

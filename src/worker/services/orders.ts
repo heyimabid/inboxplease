@@ -1,3 +1,4 @@
+import { statedDeliveryZone } from './delivery-zone';
 import { useMyName } from '../ai/conversation-routing';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import type { Env } from '../env';
@@ -25,7 +26,6 @@ import {
   nextOrderState,
   explicitConfirmation,
   latinDigits,
-  validCustomerName,
 } from './order-state-machine';
 import { style, formatMoney, type Language } from '../ai/language-style';
 import { log } from '../shared/logger';
@@ -36,6 +36,12 @@ export type OrderContext = {
   conversationId: string;
   sourceText: string;
   sourceMessageIds: string[];
+  // Set only by the server tool executor after evidence and resource validation.
+  agentEvidence?: {
+    profileName?: string;
+    deliveryArea?: string;
+    confirmation?: { reviewHash: string; messageIds: string[] };
+  };
 };
 export async function getDraft(ctx: OrderContext) {
   const db = database(ctx.env),
@@ -113,6 +119,12 @@ function editable(state: string) {
     throw new AppError('ORDER_TERMINAL', 'Start a new order before making changes', 409);
 }
 export async function consentedProfileName(ctx: OrderContext) {
+  if (ctx.agentEvidence?.profileName) {
+    const actual = (await conversationContext(ctx.env, ctx.workspaceId, ctx.conversationId))
+      .customer.facebookName;
+    return actual === ctx.agentEvidence.profileName ? actual : null;
+  }
+  if (ctx.env.APP_MODE !== 'mock') return null;
   if (
     !useMyName(ctx.sourceText) &&
     !/^(yes|yeah|sure|হ্যাঁ|হ্যা|জি)[.!\s]*$/iu.test(ctx.sourceText.trim())
@@ -159,6 +171,37 @@ export async function updateDraft(ctx: OrderContext, input: unknown) {
       patch.phone = phone;
       continue;
     }
+    if (key === 'deliveryArea') {
+      const zones = await database(ctx.env)
+        .select()
+        .from(deliveryZones)
+        .where(
+          and(
+            eq(deliveryZones.workspaceId, ctx.workspaceId),
+            eq(deliveryZones.currency, draft.currency),
+            eq(deliveryZones.isActive, true),
+          ),
+        );
+      // Explicit labelled area in a message containing several checkout fields is
+      // also accepted; otherwise allow only an unambiguous stated zone/alias.
+      const named =
+        source.includes(latinDigits(value).toLowerCase()) && zones.some((z) => z.name === value);
+      if (
+        !named &&
+        ctx.agentEvidence?.deliveryArea !== value &&
+        (ctx.env.APP_MODE !== 'mock' ||
+          statedDeliveryZone(
+            ctx.sourceText,
+            zones.map((z) => z.name),
+          ) !== value)
+      )
+        throw new AppError(
+          'DELIVERY_AREA_UNKNOWN',
+          'Please tell me which delivery area covers your address',
+        );
+      patch.deliveryArea = value;
+      continue;
+    }
     const profileConsent =
       key === 'customerName' &&
       !source.includes(latinDigits(value).toLowerCase()) &&
@@ -167,19 +210,12 @@ export async function updateDraft(ctx: OrderContext, input: unknown) {
       throw new AppError('UNVERIFIED_FIELD', 'Please type the order detail explicitly');
     if (key === 'customerName') patch.customerName = value;
     if (key === 'deliveryAddress') patch.deliveryAddress = value;
-    if (key === 'deliveryArea') patch.deliveryArea = value;
     if (key === 'notes') patch.notes = value;
   }
-  for (const key of ['customerName', 'phone', 'deliveryAddress', 'deliveryArea'] as const) {
-    if (
-      draft[key] &&
-      patch[key] &&
-      draft[key] !== patch[key] &&
-      !(key === 'customerName' && !validCustomerName(draft.customerName!)) &&
-      !/change|correct|instead|পরিবর্তন|সংশোধন|বদল/i.test(ctx.sourceText)
-    )
-      delete patch[key];
-  }
+  // Every value above is verified against this turn (or explicit profile consent).
+  // Customers can correct details naturally without a magic "change" command.
+  for (const key of ['customerName', 'phone', 'deliveryAddress', 'deliveryArea', 'notes'] as const)
+    if (patch[key] === draft[key]) delete patch[key];
   if (patch.deliveryArea) {
     const zone = await database(ctx.env)
       .select()
@@ -230,6 +266,12 @@ export async function addItem(ctx: OrderContext, variantId: string, quantity: nu
     throw new AppError('OUT_OF_STOCK', 'That quantity is no longer available', 409);
   if (product.currency !== draft.currency)
     throw new AppError('CURRENCY_MISMATCH', 'Product currency differs from the order currency');
+  const existingItem = draft.items.find((i) => i.variantId === variantId);
+  if (
+    existingItem?.quantity === quantity &&
+    existingItem.unitPriceSnapshot === (variant.priceOverride ?? product.basePrice)
+  )
+    return draft;
   await db
     .insert(draftItems)
     .values({
@@ -383,7 +425,8 @@ export async function reviewDraft(ctx: OrderContext, language: Language) {
   };
 }
 export async function confirmDraft(ctx: OrderContext) {
-  if (!explicitConfirmation(ctx.sourceText))
+  const approval = ctx.agentEvidence?.confirmation;
+  if (!approval && (ctx.env.APP_MODE !== 'mock' || !explicitConfirmation(ctx.sourceText)))
     throw new AppError('CONFIRMATION_REQUIRED', 'Please explicitly confirm the order summary', 409);
   const db = database(ctx.env),
     draft = required(await getDraft(ctx));
@@ -393,6 +436,17 @@ export async function confirmDraft(ctx: OrderContext) {
     .where(and(eq(orders.workspaceId, ctx.workspaceId), eq(orders.idempotencyKey, draft.id)))
     .get();
   if (previous) return previous;
+  if (
+    approval &&
+    (approval.reviewHash !== draft.reviewHash ||
+      !approval.messageIds.length ||
+      approval.messageIds.some((id) => !ctx.sourceMessageIds.includes(id)))
+  )
+    throw new AppError(
+      'CONFIRMATION_REQUIRED',
+      'The current customer approval could not be verified',
+      409,
+    );
   if (draft.state !== 'AWAITING_CONFIRMATION' || !draft.reviewHash)
     throw new AppError('SUMMARY_REQUIRED', 'Review the complete order summary first', 409);
   const evidence = [];
@@ -411,7 +465,12 @@ export async function confirmDraft(ctx: OrderContext) {
       .get();
     if (message) evidence.push(message);
   }
-  if (!evidence.length || !evidence.some((m) => explicitConfirmation(m.text ?? '')))
+  if (
+    !evidence.length ||
+    (approval
+      ? !evidence.some((m) => approval.messageIds.includes(m.id))
+      : !evidence.some((m) => explicitConfirmation(m.text ?? '')))
+  )
     throw new AppError('CONFIRMATION_REQUIRED', 'Customer confirmation could not be verified', 409);
   const summary = await db
     .select()

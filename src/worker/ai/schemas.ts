@@ -14,6 +14,8 @@ export const CustomerIntentSchema = z
       'order_information',
       'order_confirmation',
       'order_cancellation',
+      'order_status',
+      'smalltalk',
       'complaint',
       'human_request',
       'other',

@@ -27,19 +27,13 @@ export function normalizePhone(value: string) {
   return '+88' + phone;
 }
 export function explicitConfirmation(text: string) {
-  return /^(?:confirm|confirmed|confirm korchi|হ্যাঁ|হ্যা|হ্যাঁ কনফার্ম|নিশ্চিত|কনফার্ম)[.!।\s]*$/iu.test(
+  return /^(?:confirm|confirmed|confirm korchi|confirm koro|confirm korun|please confirm|yes[, ]+confirm|কনফার্ম করুন|হ্যাঁ|হ্যা|হ্যাঁ কনফার্ম|নিশ্চিত|কনফার্ম)[.!।\s]*$/iu.test(
     text.trim(),
   );
 }
 export function validCustomerName(value: string) {
-  return (
-    value.trim().length >= 2 &&
-    !/^(yes|no|ok|okay|sure|hello|hi|হ্যাঁ|হ্যা|জি|না)[.!\s]*$/iu.test(value.trim()) &&
-    !/^(?:(?:am[ai]r|amar|amr|my|আমার)\s*(?:name|nam|নাম)(?:\s*(?:e|ei|এ|hobe|হবে|ই))*|me|myself|আমি)$/iu.test(
-      value.trim(),
-    ) &&
-    !/[?？]|\d{5}/u.test(value)
-  );
+  // Structural validation only; Gemini interprets whether text is a recipient name.
+  return value.trim().length >= 2 && value.length <= 120 && !/\d{5}/u.test(value);
 }
 export function nextOrderState(draft: {
   items: unknown[];

@@ -103,3 +103,111 @@ it('accepts yes to a displayed profile-name question without placing an order or
   ctx.sourceText = 'Amr name e';
   await expect(updateDraft(ctx, { customerName: 'Another Person' })).rejects.toThrow('explicitly');
 });
+
+it('replaces addresses without magic correction words, retains other details and does not repeat unchanged summaries', async () => {
+  const { ctx } = await fixture();
+  ctx.sourceText = 'name: Abid Hasan phone: 01712345678 address: Old Road 10 area: Dhakar vitore';
+  await updateDraft(ctx, {
+    customerName: 'Abid Hasan',
+    phone: '01712345678',
+    deliveryAddress: 'Old Road 10',
+    deliveryArea: 'Dhakar vitore',
+  });
+  ctx.sourceText = '97 Asad Ave, Dhaka, Bangladesh, 1207';
+  const intent = mockIntent(ctx.sourceText);
+  intent.intent = 'order_information';
+  intent.extractedOrderFields.address = ctx.sourceText;
+  const updated = await orderFlow(ctx, intent, 'banglish');
+  expect(updated?.metadata.tool).toBe('request_order_confirmation');
+  expect(updated?.text).toContain(ctx.sourceText);
+  expect(updated?.text).not.toContain('Old Road');
+  const draft = await getDraft(ctx);
+  expect(draft?.phone).toBe('+8801712345678');
+  expect(draft?.customerName).toBe('Abid Hasan');
+  expect(draft?.items).toHaveLength(1);
+  const repeat = await orderFlow(ctx, intent, 'banglish');
+  expect(repeat?.metadata.tool).not.toBe('request_order_confirmation');
+  expect(await getDraft(ctx)).toEqual(draft);
+  ctx.sourceText = '?';
+  expect((await orderFlow(ctx, mockIntent('?'), 'banglish'))?.metadata.tool).not.toBe(
+    'request_order_confirmation',
+  );
+  expect(await getDraft(ctx)).toEqual(draft);
+});
+
+it('does not consume unrelated questions or thanks in any checkout stage', async () => {
+  const { ctx } = await fixture();
+  for (const stage of ['name', 'review']) {
+    if (stage === 'review') {
+      ctx.sourceText = 'Abid Hasan 01712345678 Old Road 10 Dhakar vitore';
+      await updateDraft(ctx, {
+        customerName: 'Abid Hasan',
+        phone: '01712345678',
+        deliveryAddress: 'Old Road 10',
+        deliveryArea: 'Dhakar vitore',
+      });
+    }
+    const before = await getDraft(ctx);
+    for (const [text, intentName] of [
+      ['What is the warranty?', 'product_question'],
+      ['Show me another hoodie', 'product_search'],
+      ['I did not understand you', 'other'],
+      ['thanks', 'smalltalk'],
+    ] as const) {
+      ctx.sourceText = text;
+      const intent = mockIntent(text);
+      intent.intent = intentName;
+      // Exercise production routing: a broad product search is never a field answer.
+      expect(
+        await orderFlow({ ...ctx, env: { ...env, APP_MODE: 'production' } }, intent, 'english'),
+      ).toBeNull();
+      expect(await getDraft(ctx)).toEqual(before);
+    }
+  }
+});
+
+it('clarifies an unspecified change without removing the selected product', async () => {
+  const { ctx } = await fixture();
+  ctx.sourceText = 'change this';
+  const intent = mockIntent(ctx.sourceText);
+  intent.intent = 'order_information';
+  const before = await getDraft(ctx);
+  expect((await orderFlow(ctx, intent, 'english'))?.text).toContain(
+    'What would you like to change',
+  );
+  expect(await getDraft(ctx)).toEqual(before);
+});
+
+it('answers confirmation-status questions without creating or confirming an order', async () => {
+  const { ctx } = await fixture();
+  const before = await getDraft(ctx);
+  for (const text of [
+    'Amr order ki confirm hoise?',
+    'Na bolsi order ta confirm ki na',
+    'Is my order confirmed?',
+  ]) {
+    ctx.sourceText = text;
+    const reply = await orchestrate(env, ctx.workspaceId, ctx.conversationId, text);
+    expect(reply?.metadata.tool).toBe('order_status');
+    expect(reply?.metadata.status).toBe('draft');
+    expect(await getDraft(ctx)).toEqual(before);
+  }
+});
+
+it('uses a natural stated delivery area without replacing the actual address', async () => {
+  const { ctx } = await fixture();
+  ctx.sourceText = 'Abid Hasan 01712345678 97 Asad Ave, Dhaka';
+  await updateDraft(ctx, {
+    customerName: 'Abid Hasan',
+    phone: '01712345678',
+    deliveryAddress: '97 Asad Ave, Dhaka',
+  });
+  ctx.sourceText = 'Dhakar moddhe';
+  const intent = mockIntent(ctx.sourceText);
+  intent.intent = 'order_information';
+  intent.extractedOrderFields.deliveryArea = ctx.sourceText;
+  const reply = await orderFlow(ctx, intent, 'banglish');
+  expect(reply?.metadata.tool).toBe('request_order_confirmation');
+  expect((await getDraft(ctx))?.deliveryArea).toBe('Dhakar vitore');
+  expect((await getDraft(ctx))?.deliveryAddress).toBe('97 Asad Ave, Dhaka');
+});

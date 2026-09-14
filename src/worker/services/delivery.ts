@@ -46,7 +46,12 @@ export async function deliver(
       throw new AppError('MESSAGING_WINDOW_CLOSED', 'The Messenger reply window has closed', 409);
     return 'suppressed';
   }
-  if (sender === 'ai' && 'text' in message && requestsPaymentCredentials(message.text)) {
+  if (
+    sender === 'ai' &&
+    env.APP_MODE === 'mock' &&
+    'text' in message &&
+    requestsPaymentCredentials(message.text)
+  ) {
     await handoff(env, w, conversationId, 'unsafe_catalog_content');
     return 'suppressed';
   }

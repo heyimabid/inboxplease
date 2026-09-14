@@ -193,3 +193,26 @@ it('allows only one competing customer to purchase the last unit, and cancellati
     (await db.select().from(variants).where(eq(variants.id, s.variant)).get())?.stockOnHand,
   ).toBe(1);
 });
+
+it('reports a placed order status without editing the order, restarting checkout or decrementing stock', async () => {
+  const { ctx, w, variant } = await readyOrder();
+  const order = await confirmDraft(ctx);
+  const { orderStatusReply } = await import('../../src/worker/ai/order-status');
+  const before = await database(env).select().from(orders).where(eq(orders.workspaceId, w));
+  for (const status of ['confirmed', 'shipped', 'delivered'] as const) {
+    await database(env).update(orders).set({ status }).where(eq(orders.id, order.id));
+    ctx.sourceText = 'Amr order ki confirm hoise?';
+    const reply = await orderStatusReply(ctx, 'banglish');
+    expect(reply.text).toContain(order.orderNumber);
+    expect(reply.metadata.status).toBe(status);
+  }
+  expect(await database(env).select().from(orders).where(eq(orders.workspaceId, w))).toHaveLength(
+    before.length,
+  );
+  expect(
+    (await database(env).select().from(variants).where(eq(variants.id, variant)).get())
+      ?.stockOnHand,
+  ).toBe(3);
+  const other = await readyOrder();
+  expect((await orderStatusReply(other.ctx, 'english')).text).not.toContain(order.orderNumber);
+});

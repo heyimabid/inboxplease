@@ -1,4 +1,4 @@
-import { catalogBrowse, useMyName } from './conversation-routing';
+import { catalogBrowse, useMyName, orderStatusQuestion } from './conversation-routing';
 import { isVisualReference } from './visual-context';
 import { isPhotoRequest } from './product-photos';
 import { isGreeting, isReplyRepair } from './faq-relevance';
@@ -6,7 +6,7 @@ import type { Env } from '../env';
 import { CustomerIntentSchema, type CustomerIntent } from './schemas';
 import { detectLanguage, normalizeCommerce } from './language-style';
 import { inference } from './models';
-import { UNDERSTANDING_PROMPT } from './prompts';
+import { UNDERSTANDING_PROMPT, CONVERSATION_UNDERSTANDING } from './prompts';
 export function mockIntent(text: string): CustomerIntent {
   const t = text.toLowerCase();
   let intent: CustomerIntent['intent'] = 'product_search';
@@ -16,10 +16,13 @@ export function mockIntent(text: string): CustomerIntent {
     )
   )
     intent = 'human_request';
+  else if (orderStatusQuestion(text)) intent = 'order_status';
+  else if (/^(?:thanks|thank you|dhonnobad|ধন্যবাদ|okay|ok)[.!\s]*$/iu.test(text))
+    intent = 'smalltalk';
   else if (/^(confirm|হ্যাঁ|হ্যা|নিশ্চিত|confirm korchi)[.!\s]*$/iu.test(text))
     intent = 'order_confirmation';
   else if (/cancel|বাতিল|color change|রং পরিবর্তন|না,/.test(t)) intent = 'order_cancellation';
-  else if (/name|phone|address|নাম|ঠিকানা|ফোন/.test(t)) intent = 'order_information';
+  else if (/name|phone|address|quantity|qty|নাম|ঠিকানা|ফোন/.test(t)) intent = 'order_information';
   else if (/nibo|nimu|order korbo|নিতে চাই|নিব|buy|order/i.test(t)) intent = 'order_start';
   else if (/delivery|shipping|ডেলিভারি/.test(t)) intent = 'delivery_question';
   else if (/price|dam|daam|দাম/.test(t)) intent = 'price_question';
@@ -62,6 +65,7 @@ export async function understand(
 ) {
   if (catalogBrowse(text) && mockIntent(text).intent !== 'human_request')
     return { ...mockIntent(text), intent: 'product_search' as const };
+  if (orderStatusQuestion(text)) return { ...mockIntent(text), intent: 'order_status' as const };
   if (useMyName(text)) return { ...mockIntent(text), intent: 'order_information' as const };
   if (isVisualReference(text)) return { ...mockIntent(text), intent: 'product_question' as const };
   if (isPhotoRequest(text) && mockIntent(text).intent !== 'human_request')
@@ -72,7 +76,7 @@ export async function understand(
     return { ...mockIntent(text), normalizedQuery: normalizeCommerce(text, dictionary) };
   return inference(env).json(
     CustomerIntentSchema,
-    UNDERSTANDING_PROMPT,
+    UNDERSTANDING_PROMPT + CONVERSATION_UNDERSTANDING,
     JSON.stringify({
       customerMessages: text,
       normalizedMessage: normalizeCommerce(text, dictionary),
