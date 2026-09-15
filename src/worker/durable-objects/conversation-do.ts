@@ -102,42 +102,76 @@ export class ConversationDO extends DurableObject<Env> {
     if (!batch) return;
     try {
       if (batch.reply === undefined) {
-        const ctx = await conversationContext(this.env, batch.workspaceId, batch.conversationId);
-        if (ctx.page.encryptedPageAccessToken) {
-          const token = await decrypt(
-            this.env,
-            ctx.page.encryptedPageAccessToken,
-            ctx.page.tokenKeyVersion,
-            `${batch.workspaceId}:${ctx.page.facebookPageId}`,
-          );
-          metaClient(this.env)
-            .showTypingIndicator(ctx.page.facebookPageId, ctx.customer.platformCustomerId, token)
-            .catch(() => {});
-        }
-        for (const event of batch.events) {
-          for (const attachment of event.attachments ?? []) {
-            if (event.imageIds?.includes(attachment.id)) continue;
-            await captureCustomerImage(
+        // typing_on auto-expires after ~20s on Messenger clients, so refresh
+        // it while slow work (image fetch + agent loop) is running. Best-effort:
+        // failures are logged but never block the reply.
+        let stopTyping: (() => void) | undefined;
+        try {
+          try {
+            const ctx = await conversationContext(
               this.env,
               batch.workspaceId,
-              event.customerId!,
-              attachment.id,
-              attachment.url,
+              batch.conversationId,
             );
-            event.imageIds = [...(event.imageIds ?? []), attachment.id];
-            await this.ctx.storage.put('batch', batch);
+            if (ctx.page.encryptedPageAccessToken) {
+              const token = await decrypt(
+                this.env,
+                ctx.page.encryptedPageAccessToken,
+                ctx.page.tokenKeyVersion,
+                `${batch.workspaceId}:${ctx.page.facebookPageId}`,
+              );
+              const client = metaClient(this.env);
+              const pageId = ctx.page.facebookPageId;
+              const psid = ctx.customer.platformCustomerId;
+              const conversationId = batch.conversationId;
+              client.markSeen(pageId, psid, token).catch((e) => {
+                log('typing_indicator_failed', {
+                  conversationId,
+                  errorCategory: e instanceof Error ? e.message : 'mark_seen',
+                });
+              });
+              const tick = () => {
+                client.showTypingIndicator(pageId, psid, token).catch((e) => {
+                  log('typing_indicator_failed', {
+                    conversationId,
+                    errorCategory: e instanceof Error ? e.message : 'typing_on',
+                  });
+                });
+              };
+              tick();
+              const timer = setInterval(tick, 15000);
+              stopTyping = () => clearInterval(timer);
+            }
+          } catch {
+            // Typing setup must never block the reply; orchestrate() still runs.
           }
+          for (const event of batch.events) {
+            for (const attachment of event.attachments ?? []) {
+              if (event.imageIds?.includes(attachment.id)) continue;
+              await captureCustomerImage(
+                this.env,
+                batch.workspaceId,
+                event.customerId!,
+                attachment.id,
+                attachment.url,
+              );
+              event.imageIds = [...(event.imageIds ?? []), attachment.id];
+              await this.ctx.storage.put('batch', batch);
+            }
+          }
+          if (await this.coalesceVisualTurn(batch, false)) return;
+          batch.reply = await orchestrate(
+            this.env,
+            batch.workspaceId,
+            batch.conversationId,
+            batch.events.map((e) => e.text).join('\n'),
+            batch.events.map((e) => e.id),
+            batch.events.flatMap((e) => e.imageIds ?? []),
+          );
+          await this.ctx.storage.put('batch', batch);
+        } finally {
+          stopTyping?.();
         }
-        if (await this.coalesceVisualTurn(batch, false)) return;
-        batch.reply = await orchestrate(
-          this.env,
-          batch.workspaceId,
-          batch.conversationId,
-          batch.events.map((e) => e.text).join('\n'),
-          batch.events.map((e) => e.id),
-          batch.events.flatMap((e) => e.imageIds ?? []),
-        );
-        await this.ctx.storage.put('batch', batch);
       }
       if (await this.ctx.storage.get('deleted')) return;
       if (await this.coalesceVisualTurn(batch)) return;

@@ -172,10 +172,19 @@ export function metaClient(env: Env): MetaClient {
       return { messageId: result.message_id };
     },
     async showTypingIndicator(id, psid, token) {
-      z.object({ success: z.literal(true) }).parse(
+      // Send API returns { recipient_id } for sender actions, not { success: true }.
+      z.object({ recipient_id: z.string() }).parse(
         await call(`${encodeURIComponent(id)}/messages`, token, 'POST', {
           recipient: { id: psid },
           sender_action: 'typing_on',
+        }),
+      );
+    },
+    async markSeen(id, psid, token) {
+      z.object({ recipient_id: z.string() }).parse(
+        await call(`${encodeURIComponent(id)}/messages`, token, 'POST', {
+          recipient: { id: psid },
+          sender_action: 'mark_seen',
         }),
       );
     },

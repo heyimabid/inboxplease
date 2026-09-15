@@ -41,5 +41,6 @@ export function mockMetaClient(env: Env): MetaClient {
       return { messageId: `mock:${deliveryId}` };
     },
     async showTypingIndicator() {},
+    async markSeen() {},
   };
 }
