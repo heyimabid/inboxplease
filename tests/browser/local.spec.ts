@@ -6,7 +6,7 @@ test('local seller connects a Page, completes a confirmed order and takes over',
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Explore local workspace' }).click();
   await expect(page.getByRole('heading', { name: 'Your inbox.' })).toBeVisible();
   await page.getByRole('combobox', { name: 'Workspace', exact: true }).selectOption('demo-store');
@@ -66,7 +66,7 @@ test('local seller connects a Page, completes a confirmed order and takes over',
 test('creates and switches to an empty workspace without showing the previous catalog', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Explore local workspace' }).click();
   await page.getByRole('button', { name: 'New workspace', exact: true }).click();
   const name = `Browser store ${Date.now()}`;

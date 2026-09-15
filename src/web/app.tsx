@@ -3,7 +3,17 @@ import { AnalyticsPage } from './routes/analytics';
 import { OrdersPage } from './routes/orders';
 import { InboxPage } from './routes/inbox';
 import { useState, createContext, useContext, type FormEvent } from 'react';
-import { BrowserRouter, NavLink, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Link,
+  NavLink,
+  Routes,
+  Route,
+  Navigate,
+  useSearchParams,
+} from 'react-router-dom';
+import { LandingPage } from './routes/landing';
+import { launchPlans } from '../shared/pricing';
 import {
   Inbox,
   Package,
@@ -33,6 +43,9 @@ import { SettingsPage } from './routes/settings';
 const SessionContext = createContext<Session | null>(null);
 export const useSession = () => useContext(SessionContext)!;
 function Login({ refresh }: { refresh: () => Promise<void> }) {
+  const [params] = useSearchParams();
+  const bangla = params.get('lang') === 'bn';
+  const selectedPlan = launchPlans.find((p) => p.id === params.get('plan'));
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const { data: health } = useResource<{ mode: string }>('/api/health');
@@ -68,7 +81,7 @@ function Login({ refresh }: { refresh: () => Promise<void> }) {
         },
         body: new URLSearchParams({
           csrfToken: value.csrfToken,
-          callbackUrl: `${location.origin}/`,
+          callbackUrl: `${location.origin}/inbox`,
         }),
       });
       const result: unknown = await response.json();
@@ -114,23 +127,37 @@ function Login({ refresh }: { refresh: () => Promise<void> }) {
       </div>
       <main className="auth-form">
         <div>
+          <Link to="/" className="lp-login-back">
+            ← {bangla ? 'হোমপেজে ফিরে যান' : 'Back to home'}
+          </Link>
           <span className="eyebrow">WELCOME TO YOUR WORKSPACE</span>
-          <h2>
-            Good conversations.
-            <br />
-            Better business.
-          </h2>
+          <h2>{bangla ? 'আপনার দোকানের শুরু এখানেই।' : 'Good conversations. Better business.'}</h2>
           <p>
-            Sign in to your seller workspace. You can connect a Facebook Page separately in
-            Settings.
+            {bangla
+              ? 'ফেসবুক দিয়ে লগইন করুন। এরপর আপনার দোকানের পেজ আলাদাভাবে যুক্ত করতে পারবেন।'
+              : 'Sign in to your seller workspace. You can connect a Facebook Page separately in Settings.'}
           </p>
+          {selectedPlan && (
+            <div className="lp-plan-notice" role="status">
+              {bangla
+                ? `আপনার পছন্দের প্রস্তাবিত প্ল্যান: ৳${new Intl.NumberFormat('bn-BD').format(selectedPlan.priceBdt)} / মাস। এখন কোনো পেমেন্ট বা সাবস্ক্রিপশন চালু হবে না।`
+                : `Your proposed plan: ৳${selectedPlan.priceBdt.toLocaleString('en-BD')} / month. No payment or subscription starts now.`}
+            </div>
+          )}
           {error && <ErrorNotice message={error} />}
           <button
             className="button primary wide"
             disabled={busy}
             onClick={() => void facebookLogin()}
           >
-            Continue with Facebook <ArrowUpRight size={18} />
+            {busy
+              ? bangla
+                ? 'অপেক্ষা করুন…'
+                : 'Please wait…'
+              : bangla
+                ? 'ফেসবুক দিয়ে লগইন করুন'
+                : 'Continue with Facebook'}{' '}
+            <ArrowUpRight size={18} />
           </button>
           {health?.mode === 'mock' && (
             <button
@@ -141,7 +168,11 @@ function Login({ refresh }: { refresh: () => Promise<void> }) {
               {busy ? 'Opening workspace…' : 'Explore local workspace'}
             </button>
           )}
-          <small>Sign-in uses your public profile only. Page access is a separate choice.</small>
+          <small>
+            {bangla
+              ? 'লগইনে শুধু আপনার পাবলিক প্রোফাইল ব্যবহার হয়। পেজের অনুমতি দেবেন আলাদাভাবে।'
+              : 'Sign-in uses your public profile only. Page access is a separate choice.'}
+          </small>
         </div>
       </main>
     </div>
@@ -364,7 +395,10 @@ export function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <ToastProvider>
-          <AppRoot />
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="*" element={<AppRoot />} />
+          </Routes>
         </ToastProvider>
       </BrowserRouter>
     </ErrorBoundary>

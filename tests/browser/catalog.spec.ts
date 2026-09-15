@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { encode } from 'fast-png';
 test('seller manages a product, variant, image and FAQ through the dashboard', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Explore local workspace' }).click();
   await page.getByRole('combobox', { name: 'Workspace', exact: true }).selectOption('demo-store');
   await page.getByRole('link', { name: 'Products', exact: true }).click();
