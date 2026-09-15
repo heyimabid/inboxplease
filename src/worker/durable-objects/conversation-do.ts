@@ -12,9 +12,10 @@ import { webhookEvents } from '../db/schema';
 import { ingestEvent, conversationContext } from '../repositories/conversations';
 import { orchestrate, type GeneratedReply } from '../ai/orchestrator';
 import { deliver } from '../services/delivery';
-import { sha256 } from '../services/encryption';
+import { sha256, decrypt } from '../services/encryption';
 import { log } from '../shared/logger';
 import { handoff } from '../services/handoff';
+import { metaClient } from '../meta/client';
 type Pending = {
   id: string;
   timestamp: number;
@@ -101,6 +102,18 @@ export class ConversationDO extends DurableObject<Env> {
     if (!batch) return;
     try {
       if (batch.reply === undefined) {
+        const ctx = await conversationContext(this.env, batch.workspaceId, batch.conversationId);
+        if (ctx.page.encryptedPageAccessToken) {
+          const token = await decrypt(
+            this.env,
+            ctx.page.encryptedPageAccessToken,
+            ctx.page.tokenKeyVersion,
+            `${batch.workspaceId}:${ctx.page.facebookPageId}`,
+          );
+          metaClient(this.env)
+            .showTypingIndicator(ctx.page.facebookPageId, ctx.customer.platformCustomerId, token)
+            .catch(() => {});
+        }
         for (const event of batch.events) {
           for (const attachment of event.attachments ?? []) {
             if (event.imageIds?.includes(attachment.id)) continue;

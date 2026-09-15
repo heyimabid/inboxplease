@@ -171,5 +171,13 @@ export function metaClient(env: Env): MetaClient {
       );
       return { messageId: result.message_id };
     },
+    async showTypingIndicator(id, psid, token) {
+      z.object({ success: z.literal(true) }).parse(
+        await call(`${encodeURIComponent(id)}/messages`, token, 'POST', {
+          recipient: { id: psid },
+          sender_action: 'typing_on',
+        }),
+      );
+    },
   };
 }

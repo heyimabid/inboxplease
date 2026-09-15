@@ -43,4 +43,5 @@ export interface MetaClient {
     message: OutgoingMessage,
     deliveryId: string,
   ): Promise<{ messageId: string }>;
+  showTypingIndicator(pageId: string, psid: string, token: string): Promise<void>;
 }
