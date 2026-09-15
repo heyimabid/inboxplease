@@ -1,3 +1,4 @@
+import { AppError } from '../shared/errors';
 import { z } from 'zod';
 import type { Env } from '../env';
 
@@ -55,7 +56,7 @@ export async function geminiAgentStep(
   );
   if (!response.ok) {
     await response.body?.cancel();
-    throw new Error(`Gemini agent HTTP ${response.status}`);
+    throw new AppError('GEMINI_HTTP_' + response.status, 'The Gemini provider request failed', 502);
   }
   const result = z
     .object({
@@ -71,6 +72,6 @@ export async function geminiAgentStep(
     .parse(await response.json());
   const candidate = result.candidates[0];
   if (!candidate || candidate.finishReason !== 'STOP' || !candidate.content.parts.length)
-    throw new Error('Incomplete Gemini agent response');
+    throw new AppError('GEMINI_INCOMPLETE_RESPONSE', 'Incomplete Gemini agent response', 502);
   return { role: 'model' as const, parts: candidate.content.parts };
 }

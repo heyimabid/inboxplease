@@ -10,6 +10,8 @@ const allowed = new Set([
   'tool',
   'retryCount',
   'errorCategory',
+  'errorType',
+  'stage',
   'inputTokens',
   'outputTokens',
   'handoffCount',

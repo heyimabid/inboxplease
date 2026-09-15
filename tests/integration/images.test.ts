@@ -150,10 +150,48 @@ it('offers different earbuds only with affirmative product-type evidence and hon
           differences: sameProduct ? [] : ['Different object category'],
         },
       });
+    const replyText = sameProductType
+      ? 'I can’t confirm the exact model, but we have Black earbuds as alternatives of the same product type.'
+      : 'I can’t confirm a match for this photo.';
+    const calls = [
+      { name: 'match_customer_image', args: { imageId: tempId, query: 'is this available?' } },
+      ...(sameProductType ? [{ name: 'show_product_photos', args: { productId: s.product } }] : []),
+      {
+        name: 'respond_to_customer',
+        args: {
+          text: replyText,
+          language: 'english',
+          referencedProductIds: sameProductType ? [s.product] : [],
+          meaningfulLanguageEvidence: false,
+        },
+      },
+    ];
+    const gatewayRun = vi.fn().mockImplementation(async (request) => {
+      const validating = request.query.generationConfig?.responseJsonSchema;
+      const call = validating ? undefined : calls.shift();
+      if (!validating && !call) throw new Error('Unexpected model call');
+      return Response.json({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              role: 'model',
+              parts: [
+                validating
+                  ? { text: JSON.stringify({ safe: true, problem: '' }) }
+                  : { functionCall: call },
+              ],
+            },
+          },
+        ],
+      });
+    });
     const testEnv = {
       ...env,
       APP_MODE: 'production',
-      AI: { run } as unknown as typeof env.AI,
+      CHAT_MODEL: 'google/gemini-3.5-flash-lite',
+      AI_GATEWAY_ID: 'fixture',
+      AI: { run, gateway: () => ({ run: gatewayRun }) } as unknown as typeof env.AI,
       IMAGE_PROBABLE_THRESHOLD: '',
       IMAGE_SIMILAR_THRESHOLD: '',
       IMAGE_NEAR_DUPLICATE_DISTANCE: '',
@@ -178,8 +216,12 @@ it('offers different earbuds only with affirmative product-type evidence and hon
       expect(reply?.text).toContain('can’t confirm the exact model');
       expect(reply?.text).toContain('alternatives of the same product type');
       expect(reply?.text).toContain('Black earbuds');
-      expect(JSON.parse(String(reply?.metadata.imageMatch)).kind).toBe('category_alternatives');
     }
+    const matchResponse = gatewayRun.mock.calls[1]![0].query.contents[2].parts[0].functionResponse;
+    expect(matchResponse.name).toBe('match_customer_image');
+    expect(matchResponse.response.result.match.kind).toBe(expected);
+    expect(reply?.metadata.agentVersion).toBe('tools-v1');
+    expect(calls).toHaveLength(0);
     expect(run).toHaveBeenCalledTimes(4);
   }
 });

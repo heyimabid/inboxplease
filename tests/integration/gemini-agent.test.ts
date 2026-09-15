@@ -19,52 +19,50 @@ import { executeAgentTool, type AgentToolState } from '../../src/worker/ai/agent
 
 function modelSteps(steps: { name: string; args: Record<string, unknown> }[], approved = false) {
   const pending = [...steps];
-  const run = vi
-    .fn()
-    .mockImplementation(
-      async (request: {
-        query: {
-          generationConfig?: { responseJsonSchema?: { properties?: Record<string, unknown> } };
-        };
-      }) => {
-        const properties = request.query.generationConfig?.responseJsonSchema?.properties;
-        if (properties)
-          return Response.json({
-            candidates: [
-              {
-                finishReason: 'STOP',
-                content: {
-                  parts: [
-                    {
-                      text: JSON.stringify(
-                        'approved' in properties ? { approved } : { safe: true, problem: '' },
-                      ),
-                    },
-                  ],
-                },
-              },
-            ],
-          });
-        const call = pending.shift();
-        if (!call) throw new Error('Unexpected extra model step');
+  const run = vi.fn().mockImplementation(
+    async (request: {
+      query: {
+        generationConfig?: { responseJsonSchema?: { properties?: Record<string, unknown> } };
+      };
+    }) => {
+      const properties = request.query.generationConfig?.responseJsonSchema?.properties;
+      if (properties)
         return Response.json({
           candidates: [
             {
               finishReason: 'STOP',
               content: {
-                role: 'model',
                 parts: [
                   {
-                    thoughtSignature: 'opaque-test-signature',
-                    functionCall: { ...call, id: 'call-' + pending.length },
+                    text: JSON.stringify(
+                      'approved' in properties ? { approved } : { safe: true, problem: '' },
+                    ),
                   },
                 ],
               },
             },
           ],
         });
-      },
-    );
+      const call = pending.shift();
+      if (!call) throw new Error('Unexpected extra model step');
+      return Response.json({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              role: 'model',
+              parts: [
+                {
+                  thoughtSignature: 'opaque-test-signature',
+                  functionCall: { ...call, id: 'call-' + pending.length },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    },
+  );
   return {
     ...env,
     APP_MODE: 'production',
@@ -238,18 +236,16 @@ it('does not let a confirmation-status question place an order, but accepts sema
       ? 'ji shob thik ase, ei order ta diye den'
       : 'amar order ta ki confirm hoilo?';
     const id = crypto.randomUUID();
-    await database(env)
-      .insert(messages)
-      .values({
-        id,
-        workspaceId: s.w,
-        conversationId: ctx.conversationId,
-        direction: 'inbound',
-        senderType: 'customer',
-        messageType: 'text',
-        text,
-        createdAt: Date.now(),
-      });
+    await database(env).insert(messages).values({
+      id,
+      workspaceId: s.w,
+      conversationId: ctx.conversationId,
+      direction: 'inbound',
+      senderType: 'customer',
+      messageType: 'text',
+      text,
+      createdAt: Date.now(),
+    });
     const c = { ...ctx, env: modelSteps([], approved), sourceText: text, sourceMessageIds: [id] };
     const input = {
       name: 'confirm_order',
@@ -294,4 +290,38 @@ it('feeds invalid tool arguments back for recovery without losing the order', as
   expect(reply?.text).toContain('explain');
   expect(await getDraft(ctx)).toEqual(before);
   expect(JSON.stringify(e.run.mock.calls[1]![0].query.contents)).toContain('INVALID_ARGUMENTS');
+});
+
+it('answers a greeting through the deployed orchestrator and the first tool settings check', async () => {
+  const { ctx, s } = await fixture('Hello?');
+  const before = await getDraft(ctx);
+  const e = modelSteps([finish('Hi! What can I help you find today?')]);
+  const { orchestrate } = await import('../../src/worker/ai/orchestrator');
+  const reply = await orchestrate(e, s.w, ctx.conversationId, ctx.sourceText, ctx.sourceMessageIds);
+  expect(reply?.text).toBe('Hi! What can I help you find today?');
+  expect(reply?.metadata.tool).toBe('gemini_agent');
+  expect(await getDraft(ctx)).toEqual(before);
+});
+
+it('logs a safe failure stage without leaking provider payloads', async () => {
+  const { ctx, s } = await fixture('Hello?');
+  const e = modelSteps([]);
+  e.run.mockRejectedValue(new TypeError('sensitive-provider-payload'));
+  const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  try {
+    const reply = await runGeminiAgent(
+      e,
+      s.w,
+      ctx.conversationId,
+      ctx.sourceText,
+      ctx.sourceMessageIds,
+    );
+    expect(reply?.metadata.tool).toBe('agent_retry');
+    const logs = spy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(logs).toContain('"stage":"model"');
+    expect(logs).toContain('"errorType":"TypeError"');
+    expect(logs).not.toContain('sensitive-provider-payload');
+  } finally {
+    spy.mockRestore();
+  }
 });

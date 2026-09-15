@@ -2,7 +2,15 @@ import { pageReady } from '../meta/activation';
 import { z } from 'zod';
 import { and, eq, desc, isNull, gt, inArray } from 'drizzle-orm';
 import { database } from '../db/client';
-import { products, faqs, deliveryZones, orders, messages, temporaryImages } from '../db/schema';
+import {
+  products,
+  faqs,
+  deliveryZones,
+  orders,
+  messages,
+  temporaryImages,
+  settings,
+} from '../db/schema';
 import { conversationContext } from '../repositories/conversations';
 import { canonicalCandidates, getProduct, type ProductDetail } from '../repositories/products';
 import {

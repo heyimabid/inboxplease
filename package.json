@@ -31,7 +31,8 @@
     "eval:live": "tsx scripts/evaluate-live.ts",
     "test:browser": "playwright test",
     "build:production": "VITE_API_ORIGIN=https://api.inboxplease.helloimabid.com vite build",
-    "deploy:production": "npm run build:production && wrangler deploy --config wrangler.production.jsonc"
+    "deploy:production": "npm run build:production && wrangler deploy --config wrangler.production.jsonc",
+    "predeploy:production": "npm run typecheck"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",

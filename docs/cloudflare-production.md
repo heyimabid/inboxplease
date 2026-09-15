@@ -104,3 +104,11 @@ Normal replies use Gemini Flash Lite for wording with recent conversation contex
 Live tests through the saved Google AI Studio provider key correctly classified a full address correction, a warranty question during name collection, a Banglish order-status question, a natural delivery-area reply and thanks. The actual wording model answered the status follow-up directly in Banglish. These probes used synthetic customer/order context and did not send Messenger messages or create orders. The live conversation remains in seller takeover mode (`seller_reply`); this update preserves that setting.
 
 Validation: formatting, lint, TypeScript, all 119 tests across 26 files, and the production frontend build passed. Deployed as Worker version `59fa95b7-6ee7-4b55-8ff2-902d4457c7eb`, using `google/gemini-3.5-flash-lite` for chat and vision.
+
+## Native Gemini tools and first-call failure fix
+
+On September 15, the native tool executor's missing `settings` import was fixed. It caused even the first greeting response tool to throw a ReferenceError and fall back to the repeated “couldn’t finish” reply. Failure logs now include a safe stage, tool and error type, and `npm run deploy:production` runs TypeScript before uploading. The agent uses Gemini to interpret meaning and select scoped functions; checkout state supplies context rather than routing every message to a fixed prompt. See [the implementation and research notes](agent-tool-calling.md).
+
+Validation: formatting, lint, TypeScript, all 126 tests across 27 files, and both builds passed. Regression tests exercise the first greeting tool, tool-result/signature round trips, checkout interruptions, confirmation evidence, partial field recovery, and photo matching/alternatives through the native loop. A real Gemini gateway probe with synthetic context answered “Hello?” with “Hello! Ki help korte pari?” without resuming checkout. Probes did not send Messenger messages or create live orders.
+
+Deployed as Worker version `722d7dc7-d996-4e19-8d8b-0b9aee6de7a8`, with `google/gemini-3.5-flash-lite` for chat and vision. Post-deployment curl checks returned HTTP 200 for `/api/health` and the inbox HTML. The conversation was already in AI mode with the prior seller takeover closed; no conversation/order records were changed for this deployment.
