@@ -1139,13 +1139,15 @@
     min-width: 40px;
   }
   .lp-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 48px;
     padding-top: 48px;
     padding-bottom: 62px;
   }
   .lp-hero-copy {
     max-width: 550px;
+    width: 100%;
+    min-width: 0;
     margin-inline: auto;
     text-align: center;
   }
@@ -1153,16 +1155,26 @@
   .landing:lang(bn) .lp-hero h1 {
     font-size: clamp(36px, 8vw, 47px);
     overflow-wrap: anywhere;
+    text-wrap: wrap;
+    width: 100%;
+    max-width: 100%;
+  }
+  .lp-hero h1 > span {
+    display: inline;
+    overflow-wrap: anywhere;
   }
   .lp-hero-copy > p {
     margin-inline: auto;
+    width: 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .lp-hero-actions,
   .lp-hero-note {
     justify-content: center;
   }
   .lp-demo-stage {
-    width: 470px;
+    width: 100%;
     max-width: 100%;
     margin: 0 auto;
   }
@@ -1278,7 +1290,11 @@
     gap: 6px;
   }
   .lp-header .lp-login {
-    display: none;
+    display: inline-flex;
+    gap: 2px;
+    font-size: 11px;
+    min-height: 38px;
+    white-space: nowrap;
   }
   .lp-languages button {
     font-size: 11px;
@@ -1484,7 +1500,7 @@
     gap: 6px;
   }
   .lp-brand {
-    font-size: 19px;
+    font-size: 18px;
   }
   .lp-brand > span {
     width: 28px;
